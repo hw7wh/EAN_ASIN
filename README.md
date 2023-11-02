@@ -1,4 +1,4 @@
-# Product Information Scraper
+# EAN 2 ASIN
 
 ## Description
 This Python project takes an Excel file as input, which contains EAN (European Article Number) codes, and utilizes these codes to retrieve corresponding ASIN (Amazon Standard Identification Number) codes for multiple European markets : UK, Poland, Netherlands, Italy, France, Spain, Germany, Sweden, and Belgium, if they exist. Additionally, the scraper fetches the product name and prices from various online market stores. Users have the flexibility to receive the output either directly updated in the Excel file, or stored in a MongoDB database.
