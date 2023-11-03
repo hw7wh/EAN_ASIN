@@ -1,9 +1,19 @@
 from curl_cffi.requests import Session  # pip install curl-cffi=0.5.7
 from bs4 import BeautifulSoup
+from pymongo import MongoClient
 import pandas as pd
 import numpy as np
+from datetime import datetime
 import time
 import random
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # take environment variables from .env.
+
+MONGODB_URI = os.environ.get("MONGODB_URI")
+DB_NAME = os.environ.get("DB_NAME")
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME")
 
 BASE_URL = 'https://www.barcodelookup.com/'
 
@@ -22,11 +32,51 @@ user_agent_list = [
     'safari15_5',
 ]
 
-
-
 chunk_size = 100
 
 file_path = 'input/ean.xlsx'
+
+
+# MongoDB setup (.env file later)
+client = MongoClient(MONGODB_URI)
+db = client[DB_NAME]  # replace with your database name
+products_collection = db[COLLECTION_NAME]  # replace with your collection name
+
+
+def insert_product(product_obj):
+    try:
+        # Check if jet exists
+        existing_product = products_collection.find_one({"_id": product_obj["id"]})
+        if not existing_product:
+            # In MongoDB, the unique identifier is "_id". We're setting it to the same value as "id".
+            product_obj["_id"] = product_obj["id"]
+            # Insert the jet object
+            products_collection.insert_one({
+                **product_obj,
+                'createdAt': datetime.now(),
+                'updatedAt': datetime.now()
+            })
+            print(f"Added product with id {product_obj['id']}")
+        else:
+            updated = False  # Flag to check if update occurred
+            for key in existing_product:
+                if existing_product[key] is None and product_obj.get(key) is not None:
+                    products_collection.update_one(
+                        {'_id': product_obj["id"]},
+                        {
+                            '$set': {
+                                **product_obj,
+                                'updatedAt': datetime.now()
+                            }
+                        }
+                    )
+                    print(f"Updated product with id {product_obj['id']}")
+                    updated = True
+                    break  # Exit the loop after the first update
+            if not updated:
+                print(f"Product with id {product_obj['id']} already exists.")
+    except Exception as error:
+        print("Insertion error:", error)
 
 
 def get_product_details(html):
@@ -69,18 +119,18 @@ def get_product_details(html):
 def process_chunk(chunk, impersonate):
     chunk_data = []
     with Session(impersonate=impersonate) as session:
-        print(f'New session started with {impersonate}')
+        print(f'---------------------------\nNew session started with {impersonate}\n---------------------------')
         for ean in chunk['ean']:
-            product = {}
-            product['id'] = ean
             url = f"{BASE_URL}{ean}"
             response = session.get(url)
             print(f'Connecting to {ean}')
             product = get_product_details(response.content)
             if not product:
                 continue
+            product['id'] = ean
+            insert_product(product)
             chunk_data.append(product)
-            time.sleep(random.uniform(2, 5))
+            time.sleep(random.uniform(1, 3))
     return chunk_data
 
 
@@ -91,11 +141,12 @@ if __name__ == '__main__':
         for i, chunk in enumerate(np.array_split(df, chunksize)):
             if i == 1:
                 break
+            chunk_data = []
             print(f'Processing chunk {i}...')
             print(chunk.head())
             # impersonate = user_agent_list[i % len(user_agent_list)]
             impersonate = random.choice(user_agent_list)
-            process_chunk(chunk, impersonate)
+            chunk_data = process_chunk(chunk, impersonate)
     except Exception as e:
         print("Error:", e)
 
