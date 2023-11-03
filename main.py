@@ -139,7 +139,9 @@ if __name__ == '__main__':
         df = pd.read_excel(file_path)
         chunksize = max(1, df.shape[0] // chunk_size)
         for i, chunk in enumerate(np.array_split(df, chunksize)):
-            if i == 1:
+            if i == 0:
+                continue
+            if i == 2:
                 break
             chunk_data = []
             print(f'Processing chunk {i}...')
