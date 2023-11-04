@@ -141,17 +141,21 @@ def process_chunk(chunk, impersonate):
             time.sleep(random.uniform(1, 3))
     return chunk_data
 
+def asin_count():
+    # Count documents where 'asin' is not None
+    prd = products_collection.count_documents()
+    asin_prod = products_collection.count_documents({'asin': {'$ne': None}})
+    print(f"\nNumber of documents with 'asin' not None: {asin_prod}/{prd} == {asin_prod/prd}%\n")
 
 if __name__ == '__main__':
     try:
         df = pd.read_excel(file_path)
         chunksize = max(1, df.shape[0] // chunk_size)
         for i, chunk in enumerate(np.array_split(df, chunksize)):
-            if i == 0 and i == 1:
+            if i >= 0 and i <= 58:
                 continue
-            if i == 20:
-                break
             chunk_data = []
+            asin_count()
             print(f'Processing chunk {i}...')
             print(chunk.head())
             # impersonate = user_agent_list[i % len(user_agent_list)]
