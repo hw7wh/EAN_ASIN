@@ -143,7 +143,7 @@ def process_chunk(chunk, impersonate):
 
 def asin_count():
     # Count documents where 'asin' is not None
-    prd = products_collection.count_documents()
+    prd = products_collection.count_documents({})
     asin_prod = products_collection.count_documents({'asin': {'$ne': None}})
     print(f"\nNumber of documents with 'asin' not None: {asin_prod}/{prd} == {asin_prod/prd}%\n")
 
