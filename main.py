@@ -9,6 +9,13 @@ import random
 from dotenv import load_dotenv
 import os
 
+# FOR DEBUG ONLY
+import sys
+import codecs
+
+sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+# ______
+
 load_dotenv()  # take environment variables from .env.
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
