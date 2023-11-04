@@ -64,3 +64,6 @@ input/
 
 # Scraping output
 output/
+
+# CDC / Specs / Requirements
+CDC.md
