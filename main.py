@@ -9,7 +9,7 @@ import random
 from dotenv import load_dotenv
 import os
 
-# FOR DEBUG ONLY
+# FOR DEBUG ONLY - printing unicode chars
 import sys
 import codecs
 
@@ -25,7 +25,7 @@ COLLECTION_NAME = os.environ.get("COLLECTION_NAME")
 BASE_URL = 'https://www.barcodelookup.com/'
 
 # Define the user-agent to impersonate
-user_agent_list = [
+USER_AGENT_LIST = [
     'chrome99',
     'chrome100',
     'chrome101',
@@ -39,9 +39,10 @@ user_agent_list = [
     'safari15_5',
 ]
 
-chunk_size = 100
+CHUNK_SIZE = 20 # 100 prod
 
-file_path = 'input/ean.xlsx'
+input_file_path = 'input/ean.xlsx'
+output_file_path = 'output/asin.xlsx'
 
 
 # MongoDB setup (.env file later)
@@ -123,6 +124,37 @@ def get_product_details(html):
     print(product)
     return product
 
+def export_to_excell():
+    # Fetch data from MongoDB
+    products_cursor = products_collection.find({})
+
+    # Transform data for Excel
+    excel_data = []
+    for product in products_cursor:
+        # Flatten the stores list into a dictionary
+        stores_data = {f"price_{store['store'].replace(':', '').replace(' ', '_')}": store['price'] for store in product.get('stores', [])}
+        # Create a single row for each product
+        product_data = {
+            'ean': product['id'],
+            'name': product.get('name', ''),
+            'asin': product.get('asin', '')
+        }
+        # Merge product data with stores data
+        product_data.update(stores_data)
+        excel_data.append(product_data)
+
+    # Convert to DataFrame
+    df = pd.DataFrame(excel_data)
+
+    # Define the Excel writer
+    excel_writer = pd.ExcelWriter('output/products.xlsx', engine='xlsxwriter')
+
+    # Write your DataFrame to a file     
+    df.to_excel(excel_writer, 'Sheet1', index=False)
+
+    # Save the result 
+    excel_writer.save()
+
 
 def process_chunk(chunk, impersonate):
     chunk_data = []
@@ -147,20 +179,54 @@ def asin_count():
     asin_prod = products_collection.count_documents({'asin': {'$ne': None}})
     print(f"\nNumber of documents with 'asin' not None: {asin_prod}/{prd} == {asin_prod/prd}%\n")
 
+def export_chunk_to_excel(chunk_eans):
+    # Fetch the chunk data from MongoDB
+    chunk_data = list(products_collection.find({'id': {'$in': chunk_eans}}))
+
+    # Transform data for Excel
+    excel_data = []
+    for product in chunk_data:
+        # Flatten the stores list into a dictionary
+        stores_data = {f"price_{store['store'].replace(':', '').replace(' ', '_')}": store['price'] for store in product.get('stores', [])}
+        # Create a single row for each product
+        product_data = {
+            'ean': product['id'],
+            'name': product.get('name', ''),
+            'asin': product.get('asin', '')
+        }
+        # Merge product data with stores data
+        product_data.update(stores_data)
+        excel_data.append(product_data)
+
+    # Convert to DataFrame
+    df = pd.DataFrame(excel_data)
+
+    # Append to Excel file if it exists, otherwise create a new one
+    if os.path.exists(output_file_path):
+        with pd.ExcelWriter(output_file_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            df.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
+    else:
+        with pd.ExcelWriter(output_file_path, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+
 if __name__ == '__main__':
     try:
-        df = pd.read_excel(file_path)
-        chunksize = max(1, df.shape[0] // chunk_size)
+        df = pd.read_excel(input_file_path)
+        chunksize = max(1, df.shape[0] // CHUNK_SIZE)
         for i, chunk in enumerate(np.array_split(df, chunksize)):
-            if i >= 0 and i <= 58:
-                continue
+            # if i >= 0 and i <= 72:
+            #     continue
             chunk_data = []
             asin_count()
             print(f'Processing chunk {i}...')
             print(chunk.head())
             # impersonate = user_agent_list[i % len(user_agent_list)]
-            impersonate = random.choice(user_agent_list)
+            impersonate = random.choice(USER_AGENT_LIST)
             chunk_data = process_chunk(chunk, impersonate)
+            
+            # After processing and inserting the chunk into MongoDB, export it to Excel
+            chunk_eans = [product['id'] for product in chunk_data]
+            export_chunk_to_excel(chunk_eans)
     except Exception as e:
         print("Error:", e)
 
