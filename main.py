@@ -8,6 +8,7 @@ import time
 import random
 from dotenv import load_dotenv
 import os
+import json
 
 # FOR DEBUG ONLY - printing unicode chars
 import sys
@@ -39,7 +40,7 @@ USER_AGENT_LIST = [
     'safari15_5',
 ]
 
-CHUNK_SIZE = 20 # 100 prod
+CHUNK_SIZE = 10  # 100 prod
 
 input_file_path = 'input/ean.xlsx'
 output_file_path = 'output/asin.xlsx'
@@ -54,7 +55,8 @@ products_collection = db[COLLECTION_NAME]  # replace with your collection name
 def insert_product(product_obj):
     try:
         # Check if jet exists
-        existing_product = products_collection.find_one({"_id": product_obj["id"]})
+        existing_product = products_collection.find_one(
+            {"_id": product_obj["id"]})
         if not existing_product:
             # In MongoDB, the unique identifier is "_id". We're setting it to the same value as "id".
             product_obj["_id"] = product_obj["id"]
@@ -124,42 +126,14 @@ def get_product_details(html):
     print(product)
     return product
 
-def export_to_excell():
-    # Fetch data from MongoDB
-    products_cursor = products_collection.find({})
-
-    # Transform data for Excel
-    excel_data = []
-    for product in products_cursor:
-        # Flatten the stores list into a dictionary
-        stores_data = {f"price_{store['store'].replace(':', '').replace(' ', '_')}": store['price'] for store in product.get('stores', [])}
-        # Create a single row for each product
-        product_data = {
-            'ean': product['id'],
-            'name': product.get('name', ''),
-            'asin': product.get('asin', '')
-        }
-        # Merge product data with stores data
-        product_data.update(stores_data)
-        excel_data.append(product_data)
-
-    # Convert to DataFrame
-    df = pd.DataFrame(excel_data)
-
-    # Define the Excel writer
-    excel_writer = pd.ExcelWriter('output/products.xlsx', engine='xlsxwriter')
-
-    # Write your DataFrame to a file     
-    df.to_excel(excel_writer, 'Sheet1', index=False)
-
-    # Save the result 
-    excel_writer.save()
-
+def stores_to_string(stores_list):
+    return '; '.join([f"{store['store']}: {store['price']}" for store in stores_list])
 
 def process_chunk(chunk, impersonate):
     chunk_data = []
     with Session(impersonate=impersonate) as session:
-        print(f'---------------------------\nNew session started with {impersonate}\n---------------------------')
+        print(
+            f'---------------------------\nNew session started with {impersonate}\n---------------------------')
         for ean in chunk['ean']:
             url = f"{BASE_URL}{ean}"
             response = session.get(url)
@@ -173,11 +147,14 @@ def process_chunk(chunk, impersonate):
             time.sleep(random.uniform(1, 3))
     return chunk_data
 
+
 def asin_count():
     # Count documents where 'asin' is not None
     prd = products_collection.count_documents({})
     asin_prod = products_collection.count_documents({'asin': {'$ne': None}})
-    print(f"\nNumber of documents with 'asin' not None: {asin_prod}/{prd} == {asin_prod/prd}%\n")
+    print(
+        f"\nNumber of documents with 'asin' not None: {asin_prod}/{prd} == {asin_prod/prd}%\n")
+
 
 def export_chunk_to_excel(chunk_eans):
     # Fetch the chunk data from MongoDB
@@ -186,16 +163,17 @@ def export_chunk_to_excel(chunk_eans):
     # Transform data for Excel
     excel_data = []
     for product in chunk_data:
-        # Flatten the stores list into a dictionary
-        stores_data = {f"price_{store['store'].replace(':', '').replace(' ', '_')}": store['price'] for store in product.get('stores', [])}
+        # Consolidate stores data into a JSON string
+        stores_data = json.dumps(product.get('stores', []), ensure_ascii=False)
+        # stores_data = stores_to_string(product.get('stores', []))
+        
         # Create a single row for each product
         product_data = {
             'ean': product['id'],
             'name': product.get('name', ''),
-            'asin': product.get('asin', '')
+            'asin': product.get('asin', ''),
+            'stores': stores_data  # Store the JSON string in the 'stores' column
         }
-        # Merge product data with stores data
-        product_data.update(stores_data)
         excel_data.append(product_data)
 
     # Convert to DataFrame
@@ -204,16 +182,19 @@ def export_chunk_to_excel(chunk_eans):
     # Append to Excel file if it exists, otherwise create a new one
     if os.path.exists(output_file_path):
         with pd.ExcelWriter(output_file_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-            df.to_excel(writer, index=False, header=False, startrow=writer.sheets['Sheet1'].max_row)
+            df.to_excel(writer, index=False, header=False,
+                        startrow=writer.sheets['Sheet1'].max_row)
     else:
         with pd.ExcelWriter(output_file_path, engine='openpyxl') as writer:
             df.to_excel(writer, index=False)
+
 
 if __name__ == '__main__':
     try:
         df = pd.read_excel(input_file_path)
         chunksize = max(1, df.shape[0] // CHUNK_SIZE)
         for i, chunk in enumerate(np.array_split(df, chunksize)):
+            # TO CONTINUE COMPLETE RUN
             # if i >= 0 and i <= 72:
             #     continue
             chunk_data = []
@@ -223,7 +204,7 @@ if __name__ == '__main__':
             # impersonate = user_agent_list[i % len(user_agent_list)]
             impersonate = random.choice(USER_AGENT_LIST)
             chunk_data = process_chunk(chunk, impersonate)
-            
+
             # After processing and inserting the chunk into MongoDB, export it to Excel
             chunk_eans = [product['id'] for product in chunk_data]
             export_chunk_to_excel(chunk_eans)
