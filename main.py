@@ -90,14 +90,15 @@ def get_product_details(html):
     product['asin'] = None
     product['mpn'] = None
     attributes_elem = soup.select_one('ul#product-attributes')
-    for li in attributes_elem.find_all('li', class_='product-text'):
-        text = li.text.strip()
-        if "ASIN:" in text:
-            asin = text.split("ASIN:")[1].strip()
-            product['asin'] = asin
-        elif "MPN:" in text:
-            mpn = text.split("MPN:")[1].strip()
-            product['mpn'] = mpn
+    if attributes_elem:
+        for li in attributes_elem.find_all('li', class_='product-text'):
+            text = li.text.strip()
+            if "ASIN:" in text:
+                asin = text.split("ASIN:")[1].strip()
+                product['asin'] = asin
+            elif "MPN:" in text:
+                mpn = text.split("MPN:")[1].strip()
+                product['mpn'] = mpn
 
     product['stores'] = []
     onlinestores_elem = soup.select_one('div.online-stores')
@@ -139,9 +140,9 @@ if __name__ == '__main__':
         df = pd.read_excel(file_path)
         chunksize = max(1, df.shape[0] // chunk_size)
         for i, chunk in enumerate(np.array_split(df, chunksize)):
-            if i == 0:
+            if i == 0 and i == 1:
                 continue
-            if i == 2:
+            if i == 20:
                 break
             chunk_data = []
             print(f'Processing chunk {i}...')
