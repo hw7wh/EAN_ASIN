@@ -159,9 +159,7 @@ def stores_to_string(stores_list):
     return '\n'.join([f"{store['store']} {store['price']}" for store in stores_list])
 
 
-def export_chunk_to_excel(chunk_eans):
-    # Fetch the chunk data from MongoDB
-    chunk_data = list(products_collection.find({'id': {'$in': chunk_eans}}))
+def export_chunk_to_excel(chunk_data):
     # Transform data for Excel
     excel_data = []
     for product in chunk_data:
@@ -192,7 +190,7 @@ def excell_formating():
     workbook = load_workbook(OUTPUT_FILE_PATH)
     worksheet = workbook.active
     # Assuming 'stores' is in column D (you need to adjust this based on your actual column)
-    for cell in worksheet['D:D']:
+    for cell in worksheet['D'][1:]:  # Skip the first row (header)
         cell.alignment = Alignment(wrapText=True)
 
     # Set the width of the first column
@@ -200,6 +198,10 @@ def excell_formating():
     worksheet.column_dimensions['B'].width = 50
     worksheet.column_dimensions['C'].width = 17
     worksheet.column_dimensions['D'].width = 30
+
+    # Set a larger row height for all rows except the first one
+    for idx, row in enumerate(worksheet.iter_rows(min_row=2), start=2):  # Start from the second row
+        worksheet.row_dimensions[idx].height = 30
 
     # # If you want to set the width of all columns, you could loop through them like this:
     # for column_cells in worksheet.columns:
@@ -229,9 +231,7 @@ if __name__ == '__main__':
             impersonate = random.choice(USER_AGENT_LIST) # [i % len(user_agent_list)]
             chunk_data = process_chunk(chunk, impersonate)
 
-            # After processing and inserting the chunk into MongoDB, export it to Excel
-            chunk_eans = [product['id'] for product in chunk_data]
-            export_chunk_to_excel(chunk_eans)
+            export_chunk_to_excel(chunk_data)
         excell_formating()
     except Exception as e:
         print("Error:", e)
