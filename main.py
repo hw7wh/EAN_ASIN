@@ -42,7 +42,7 @@ USER_AGENT_LIST = [
     'safari15_5',
 ]
 
-CHUNK_SIZE = 10  # 50 prod
+CHUNK_SIZE = 5  # 50 100 prod / param of script
 
 INPUT_FILE_PATH = 'input/ean.xlsx'
 OUTPUT_FILE_PATH = 'output/asin.xlsx'
@@ -67,7 +67,7 @@ def insert_product(product_obj):
                 'createdAt': datetime.now(),
                 'updatedAt': datetime.now()
             })
-            print(f"Added product with id {product_obj['id']}")
+            print(f"-->Added product with id {product_obj['id']}")
         else:
             updated = False  # Flag to check if update occurred
             for key in existing_product:
@@ -81,11 +81,11 @@ def insert_product(product_obj):
                             }
                         }
                     )
-                    print(f"Updated product with id {product_obj['id']}")
+                    print(f"-->Updated product with id {product_obj['id']}")
                     updated = True
                     break  # Exit the loop after the first update
             if not updated:
-                print(f"Product with id {product_obj['id']} already exists.")
+                print(f"-->Product with id {product_obj['id']} already exists.")
     except Exception as error:
         print("Insertion error:", error)
 
@@ -124,7 +124,7 @@ def get_product_details(html):
         }
         product['stores'].append(store)
         # from each elem in list get store_name, price & link
-    print(product)
+    print(f'\t Product details : {product}')
     return product
 
 
@@ -133,6 +133,7 @@ def process_chunk(chunk, impersonate):
     with Session(impersonate=impersonate) as session:
         print(
             f'---------------------------\nNew session started with {impersonate}\n---------------------------')
+        print(chunk.head())
         for ean in chunk['ean']:
             url = f"{BASE_URL}{ean}"
             response = session.get(url)
@@ -144,6 +145,7 @@ def process_chunk(chunk, impersonate):
             insert_product(product)
             chunk_data.append(product)
             time.sleep(random.uniform(1, 3))
+        session.close()
     return chunk_data
 
 
@@ -152,17 +154,19 @@ def asin_count():
     all_products = products_collection.count_documents({})
     asin_products = products_collection.count_documents({'asin': {'$ne': None}})
     print(
-        f"\nNumber of documents with 'asin' not None: {asin_products}/{all_products} == {asin_products/all_products}%\n")
+        f"\nNumber of documents with 'asin' not None in MongoDb Collection : {asin_products}/{all_products} == {asin_products/all_products}%\n")
 
 
 def stores_to_string(stores_list):
     return '\n'.join([f"{store['store']} {store['price']}" for store in stores_list])
 
 
-def export_chunk_to_excel(chunk_data):
+def export_chunk_to_excel(chunk_data, existing_eans):
+    # Filter out products that are already in the Excel file
+    new_chunk_data = [product for product in chunk_data if product['id'] not in existing_eans]
     # Transform data for Excel
-    excel_data = []
-    for product in chunk_data:
+    new_excel_data = []
+    for product in new_chunk_data:
         # Consolidate stores data into a JSON string
         # stores_data = json.dumps(product.get('stores', []), ensure_ascii=False)
         stores_data = stores_to_string(product.get('stores', []))
@@ -173,17 +177,15 @@ def export_chunk_to_excel(chunk_data):
             'asin': product.get('asin', ''),
             'stores': stores_data  # Store the JSON string in the 'stores' column
         }
-        excel_data.append(product_data)
+        new_excel_data.append(product_data)
     # Convert to DataFrame
-    df = pd.DataFrame(excel_data)
-    # Append to Excel file if it exists, otherwise create a new one
-    if os.path.exists(OUTPUT_FILE_PATH):
-        with pd.ExcelWriter(OUTPUT_FILE_PATH, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-            df.to_excel(writer, index=False, header=False,
-                        startrow=writer.sheets['Sheet1'].max_row)
-    else:
-        with pd.ExcelWriter(OUTPUT_FILE_PATH, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
+    new_chunk_df = pd.DataFrame(new_excel_data)
+    # Append new data to Excel file
+    if not new_chunk_df.empty:
+        append_to_excel(new_chunk_df)
+        # Update the in-memory set of EANs
+        existing_eans.update(product['id'] for product in new_chunk_data)
+    return existing_eans
 
 
 def excell_formating():
@@ -210,28 +212,63 @@ def excell_formating():
 
     workbook.save(OUTPUT_FILE_PATH)
 
+def get_existing_eans():
+    if os.path.exists(OUTPUT_FILE_PATH):
+        df = pd.read_excel(OUTPUT_FILE_PATH)
+        print(f'Output file exists number of existing EANs : {df.shape[0]}')
+        return set(df['ean'].astype(str).tolist())
+    else:
+        print('No output file in specified path a new one will be created once first batch/chunk of Input eans is processed')
+        return set()
+
+def append_to_excel(df):
+    print(f' ========== Writing {df.shape[0]} products to excell ... ========== ')
+    # Append to Excel file if it exists, otherwise create a new one
+    if os.path.exists(OUTPUT_FILE_PATH):
+        with pd.ExcelWriter(OUTPUT_FILE_PATH, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            df.to_excel(writer, index=False, header=False,
+                        startrow=writer.sheets['Sheet1'].max_row)
+    else:
+        with pd.ExcelWriter(OUTPUT_FILE_PATH, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+
+
 
 if __name__ == '__main__':
     try:
+        # Load existing EANs from the output file
+        existing_eans = get_existing_eans()
+
         df = pd.read_excel(INPUT_FILE_PATH)
-        chunksize = max(1, df.shape[0] // CHUNK_SIZE)
+        total_rows = df.shape[0]
+        chunksize = max(1, total_rows // CHUNK_SIZE)
+        total_chunks = np.ceil(total_rows / CHUNK_SIZE).astype(int)
+
+        asin_count()
+
         for i, chunk in enumerate(np.array_split(df, chunksize)):
-            # TO CONTINUE COMPLETE RUN ON ALL 14500 EANs
+            # MongoDb DEBUGG : TO CONTINUE COMPLETE RUN ON ALL 14500 EANs
             # if i >= 0 and i <= 72:
             #     continue
 
-            # DEBBUGGING EXPORTING DATA TO EXCELL FUNCTIONALITY
-            if i == 2:
+            # EXCELL UNIQUE ROWS DEBBUGG : RERUN CODE ON SAME OUTPUT FILE NO DOUBLONS !!
+            if i == 15:
                 break
 
+            print(f'\n\nProcessing chunk {i+1}/{total_chunks}...')
+
+
             chunk_data = []
-            asin_count()
-            print(f'Processing chunk {i}...')
-            print(chunk.head())
+            
+            
             impersonate = random.choice(USER_AGENT_LIST) # [i % len(user_agent_list)]
             chunk_data = process_chunk(chunk, impersonate)
-
-            export_chunk_to_excel(chunk_data)
+            
+            existing_eans = export_chunk_to_excel(chunk_data, existing_eans)
+            
+            # Format excell document once we are sure it exists
+            if i == 0:
+                excell_formating()
         excell_formating()
     except Exception as e:
         print("Error:", e)
