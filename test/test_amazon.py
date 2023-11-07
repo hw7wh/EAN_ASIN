@@ -1,6 +1,8 @@
 # RUN AS STANDALONE TO TEST HTTP CLIENT FOR AMAZON : curl_cffi is great
+# NEED UC !! curl is not consistent (write text captcha)
 
 from curl_cffi.requests import Session
+from bs4 import BeautifulSoup
 import time
 import random
 
@@ -33,7 +35,7 @@ URL_LIST = [
 ]
 
 
-impersonate = 'safari15_5'
+impersonate = 'chrome100'
 
 if __name__ == '__main__':
     try:
@@ -43,7 +45,12 @@ if __name__ == '__main__':
                     url = amazon_url + asin
                     response = session.get(url)
                     print(f'Connecting to {url}...')
-                    print(response.ok) # TRUE if prod exists FALSE otherwise
+                    if response.ok: # TRUE if prod exists FALSE otherwise
+                        soup = BeautifulSoup(response.content, 'html.parser')
+                        print(soup.prettify())
+                        availability_elem = soup.select_one('div#availability')
+                        print(availability_elem.text)
+                        # scrape price
                     print('________________________________________________________________\n\n\n\n')
                     time.sleep(random.uniform(1,3))
     except Exception as e:
