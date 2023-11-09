@@ -10,10 +10,6 @@ from datetime import datetime
 import time
 import random
 import os
-import json
-
-from requests_html import HTMLSession
-
 
 # FOR DEBUG ONLY - printing unicode chars
 import sys
@@ -28,7 +24,7 @@ MONGODB_URI = os.environ.get("MONGODB_URI")
 DB_NAME = os.environ.get("DB_NAME")
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME")
 
-BASE_URL = 'https://www.barcodespider.com/' # 'https://www.barcodelookup.com/'
+BASE_URL = 'https://www.barcodelookup.com/'
 
 # Define the user-agent to impersonate
 USER_AGENT_LIST = [
@@ -131,7 +127,7 @@ def get_product_details(html):
     return product
 
 
-def process_chunk(chunk, impersonate):
+def process_chunk(chunk, impersonate, db=True):
     chunk_data = []
     with Session(impersonate=impersonate) as session:
         print(
@@ -145,35 +141,12 @@ def process_chunk(chunk, impersonate):
             if not product:
                 continue
             product['id'] = ean
-            insert_product(product)
+            if db:
+                insert_product(product)
             chunk_data.append(product)
             time.sleep(random.uniform(1, 3))
         session.close()
     return chunk_data
-
-def spider_test(chunk):
-    # chunk_data = []
-    session = HTMLSession()
-    print(
-            f'---------------------------\nNew session started\n---------------------------')
-    print(chunk.head())
-    for ean in chunk['ean']:
-        url = f"{BASE_URL}{ean}"
-        response = session.get(url)
-        print(f'Connecting to {ean}')
-        print(response.ok)
-        print(response.status_code)
-        print('===================================================\n\n\n')
-        # product = get_product_details(response.content)
-        # if not product:
-        #     continue
-        # product['id'] = ean
-        # insert_product(product)
-        # chunk_data.append(product)
-        time.sleep(random.uniform(3, 7))
-    session.close()
-    # return chunk_data
-
 
 
 def asin_count():
@@ -232,11 +205,6 @@ def excell_formating():
     for idx, row in enumerate(worksheet.iter_rows(min_row=2), start=2):  # Start from the second row
         worksheet.row_dimensions[idx].height = 30
 
-    # # If you want to set the width of all columns, you could loop through them like this:
-    # for column_cells in worksheet.columns:
-    #     length = max(len(str(cell.value)) for cell in column_cells)
-    #     worksheet.column_dimensions[column_cells[0].column_letter].width = length
-
     workbook.save(OUTPUT_FILE_PATH)
 
 def get_existing_eans():
@@ -264,48 +232,37 @@ def append_to_excel(df):
 if __name__ == '__main__':
     try:
         # Load existing EANs from the output file
-        # existing_eans = get_existing_eans()
+        existing_eans = get_existing_eans()
 
         df = pd.read_excel(INPUT_FILE_PATH)
         total_rows = df.shape[0]
         chunksize = max(1, total_rows // CHUNK_SIZE)
         total_chunks = np.ceil(total_rows / CHUNK_SIZE).astype(int)
 
-        # asin_count()
+        asin_count()
 
         for i, chunk in enumerate(np.array_split(df, chunksize)):
             # MongoDb DEBUGG : TO CONTINUE COMPLETE RUN ON ALL 14500 EANs
             # if i >= 0 and i <= 72:
             #     continue
 
-            # EXCELL UNIQUE ROWS DEBBUGG : RERUN CODE ON SAME OUTPUT FILE NO DOUBLONS !!
-            if i == 5:
+            # DEBBUGG : 
+            if i == 100:
                 break
 
             print(f'\n\nProcessing chunk {i+1}/{total_chunks}...')
 
-
-            # chunk_data = []
+            chunk_data = []
             
-            # impersonate = random.choice(USER_AGENT_LIST) # [i % len(user_agent_list)]
-            # chunk_data = process_chunk(chunk, impersonate)
-            spider_test(chunk)
+            impersonate = random.choice(USER_AGENT_LIST) # [i % len(user_agent_list)]
+            chunk_data = process_chunk(chunk, impersonate,False)
             
-            # existing_eans = export_chunk_to_excel(chunk_data, existing_eans)
+            existing_eans = export_chunk_to_excel(chunk_data, existing_eans)
             
             # Format excell document once we are sure it exists
-        #     if i == 0:
-        #         excell_formating()
-        # excell_formating()
+            if i == 0:
+                excell_formating()
+        excell_formating()
     except Exception as e:
         print("Error:", e)
 
-
-# # http/socks proxies are supported
-# proxies = {"https": "http://localhost:3128"}
-# r = requests.get(BASE_URL, impersonate="chrome110", proxies=proxies)
-# print(r.content)
-
-# proxies = {"https": "socks://localhost:3128"}
-# r = requests.get(BASE_URL, impersonate="chrome110", proxies=proxies)
-# print(r.content)
